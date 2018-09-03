@@ -3,13 +3,14 @@
 namespace Pterodactyl\Jobs\Schedule;
 
 use Exception;
-use Carbon\Carbon;
+use Cake\Chronos\Chronos;
 use Pterodactyl\Jobs\Job;
 use InvalidArgumentException;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Bus\DispatchesJobs;
+use Illuminate\Foundation\Bus\Dispatchable;
 use Pterodactyl\Contracts\Repository\TaskRepositoryInterface;
 use Pterodactyl\Services\DaemonKeys\DaemonKeyProviderService;
 use Pterodactyl\Contracts\Repository\ScheduleRepositoryInterface;
@@ -18,7 +19,7 @@ use Pterodactyl\Contracts\Repository\Daemon\CommandRepositoryInterface;
 
 class RunTaskJob extends Job implements ShouldQueue
 {
-    use DispatchesJobs, InteractsWithQueue, SerializesModels;
+    use Dispatchable, InteractsWithQueue, SerializesModels;
 
     /**
      * @var \Pterodactyl\Contracts\Repository\Daemon\CommandRepositoryInterface
@@ -53,7 +54,7 @@ class RunTaskJob extends Job implements ShouldQueue
      */
     public function __construct(int $task, int $schedule)
     {
-        $this->queue = config('pterodactyl.queues.standard');
+        Log::info('Calling constructor for RunTaskJob');
         $this->task = $task;
         $this->schedule = $schedule;
     }
@@ -76,40 +77,42 @@ class RunTaskJob extends Job implements ShouldQueue
         PowerRepositoryInterface $powerRepository,
         TaskRepositoryInterface $taskRepository
     ) {
+        Log::info('Calling handler for RunTaskJob');
+
         $this->commandRepository = $commandRepository;
         $this->powerRepository = $powerRepository;
         $this->taskRepository = $taskRepository;
 
-        $task = $this->taskRepository->getTaskForJobProcess($this->task);
-        $server = $task->getRelation('server');
-        $user = $server->getRelation('user');
-
-        // Do not process a task that is not set to active.
-        if (! $task->getRelation('schedule')->is_active) {
-            $this->markTaskNotQueued();
-            $this->markScheduleComplete();
-
-            return;
-        }
-
-        // Perform the provided task against the daemon.
-        switch ($task->action) {
-            case 'power':
-                $this->powerRepository->setServer($server)
-                    ->setToken($keyProviderService->handle($server, $user))
-                    ->sendSignal($task->payload);
-                break;
-            case 'command':
-                $this->commandRepository->setServer($server)
-                    ->setToken($keyProviderService->handle($server, $user))
-                    ->send($task->payload);
-                break;
-            default:
-                throw new InvalidArgumentException('Cannot run a task that points to a non-existent action.');
-        }
-
-        $this->markTaskNotQueued();
-        $this->queueNextTask($task->sequence_id);
+//        $task = $this->taskRepository->getTaskForJobProcess($this->task);
+//        $server = $task->getRelation('server');
+//        $user = $server->getRelation('user');
+//
+//        // Do not process a task that is not set to active.
+//        if (! $task->getRelation('schedule')->is_active) {
+//            $this->markTaskNotQueued();
+//            $this->markScheduleComplete();
+//
+//            return;
+//        }
+//
+//        // Perform the provided task against the daemon.
+//        switch ($task->action) {
+//            case 'power':
+//                $this->powerRepository->setServer($server)
+//                    ->setToken($keyProviderService->handle($server, $user))
+//                    ->sendSignal($task->payload);
+//                break;
+//            case 'command':
+//                $this->commandRepository->setServer($server)
+//                    ->setToken($keyProviderService->handle($server, $user))
+//                    ->send($task->payload);
+//                break;
+//            default:
+//                throw new InvalidArgumentException('Cannot run a task that points to a non-existent action.');
+//        }
+//
+//        $this->markTaskNotQueued();
+//        $this->queueNextTask($task->sequence_id);
     }
 
     /**
@@ -144,7 +147,8 @@ class RunTaskJob extends Job implements ShouldQueue
         }
 
         $this->taskRepository->update($nextTask->id, ['is_queued' => true]);
-        $this->dispatch((new self($nextTask->id, $this->schedule))->delay($nextTask->time_offset));
+
+        self::dispatch($nextTask->id, $this->schedule)->delay($nextTask->time_offset);
     }
 
     /**
@@ -158,7 +162,7 @@ class RunTaskJob extends Job implements ShouldQueue
         $repository = app()->make(ScheduleRepositoryInterface::class);
         $repository->withoutFreshModel()->update($this->schedule, [
             'is_processing' => false,
-            'last_run_at' => Carbon::now()->toDateTimeString(),
+            'last_run_at' => Chronos::now(),
         ]);
     }
 

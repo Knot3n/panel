@@ -1,17 +1,11 @@
 <?php
-/**
- * Pterodactyl - Panel
- * Copyright (c) 2015 - 2017 Dane Everitt <dane@daneeveritt.com>.
- *
- * This software is licensed under the terms of the MIT license.
- * https://opensource.org/licenses/MIT
- */
 
 namespace Pterodactyl\Console\Commands\Schedule;
 
 use Cake\Chronos\Chronos;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Pterodactyl\Services\Schedules\ProcessScheduleService;
 use Pterodactyl\Contracts\Repository\ScheduleRepositoryInterface;
 
@@ -47,6 +41,7 @@ class ProcessRunnableCommand extends Command
     {
         parent::__construct();
 
+        Log::info('Constructed process runnable.');
         $this->processScheduleService = $processScheduleService;
         $this->repository = $repository;
     }
@@ -56,7 +51,13 @@ class ProcessRunnableCommand extends Command
      */
     public function handle()
     {
+        Log::info('Calling process runnable handle');
         $schedules = $this->repository->getSchedulesToProcess(Chronos::now()->toAtomString());
+        if (empty($schedules)) {
+            $this->line('No schedules set to be processed.');
+
+            return;
+        }
 
         $bar = $this->output->createProgressBar(count($schedules));
         $schedules->each(function ($schedule) use ($bar) {
